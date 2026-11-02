@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  MirrorFilter Web — VERSION 5.238
+  MirrorFilter Web — VERSION 5.239
   (The version shown here always matches the newest Changelog entry, which the
    app also displays live next to "Web" in the header. To confirm which build a
    given index.html is, check this line or the header in the running app.)
@@ -1713,6 +1713,13 @@ html.theme-tex-storm .ss,html.theme-tex-storm .card,html.theme-tex-storm .ri,htm
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;display:flex;align-items:center;gap:5px">
         Economy Prices
         <span style="cursor:pointer;color:var(--text3);font-size:13px" data-tip="Click for full Auto-Tier explanation" onclick="openM('econM')">ℹ</span>
+        <select id="priceUnitSel" onchange="setPriceUnit(this.value)"
+                data-tip="Display unit only. Prices are always FETCHED and STORED in chaos, and tier thresholds keep using chaos — this just converts what you see, using the Exalted/Divine Orb price from the same fetch."
+                style="background:var(--bg);border:1px solid var(--border2);color:var(--text2);font-size:10px;border-radius:3px;padding:1px 3px;text-transform:none;letter-spacing:0;font-weight:600;cursor:pointer">
+          <option value="chaos">in Chaos</option>
+          <option value="exalted">in Exalted</option>
+          <option value="divine">in Divine</option>
+        </select>
         <span style="flex:1"></span>
         <label class="econ-scope-toggle" data-tip="Show prices for just the selected rule, or every rule in its section">
           <input type="checkbox" id="econScopeToggle" onchange="setEconScope(this.checked?'section':'rule')">
@@ -33345,6 +33352,12 @@ const BASEDATA_GENERATED='2026-10-07';
 const GAME_PATCH_LEAGUE='Runes of Aldur';
 
 const CHANGELOG=[
+  {v:'5.239',changes:[
+    'NEW \u2014 price display unit. A dropdown in the ECONOMY PRICES header switches every price between Chaos, Exalted and Divine, the same way poe.ninja does. Applies to the prices panel and the price badges on BaseType chips.',
+    'No extra data is fetched. The conversion rate comes from the SAME fetch you already have \u2014 Exalted Orb\u2019s own chaos price, or Divine Orb\u2019s. Verified against poe.ninja: Mirror of Kalandra shows 60.0kc / 4.2Mex / 6.2kdiv and Divine Orb 9.7c / 685ex, matching their site exactly.',
+    'Display only, deliberately. Prices are still fetched and stored in chaos, and tier thresholds still compare in chaos, so Auto-Tier, sorting and every existing rule behave identically. Changing the view cannot re-tier your filter.',
+    'If the chosen unit\u2019s rate item is missing from the last fetch, it falls back to chaos and says so rather than inventing a conversion.'
+  ]},
   {v:'5.238',changes:[
     'The two stacked header lines are now centred on each other instead of left-aligned, on both sides: \u201CWeb tool vX \u00b7 by Adamg & Claude\u201D over \u201Ccurrent with PoE2 patch\u201D, and the saved-status over the three-files indicator.',
     'Centring the right-hand pair needed care: #statusBar holds a fixed-width slot on purpose \u2014 it is the 5.207 fix that stops the whole centred toolbar sliding sideways when the status text changes length. Rather than letting it shrink to its text, the stack itself now owns that fixed footprint and both lines centre inside it. Re-ran the shift test: 0.00px movement when the status goes from \u201CReady\u201D to \u201CFetching prices from poe.ninja\u2026\u201D and back.'
@@ -35176,6 +35189,8 @@ async function init(){
     syncLeagueUI();
     if(typeof renderLeagueContent==='function')renderLeagueContent();
     if(typeof renderBasedataStatus==='function')renderBasedataStatus();
+    const puSel=document.getElementById('priceUnitSel');
+    if(puSel)puSel.value=(typeof priceUnit==='function')?priceUnit():'chaos';
     applyTheme(S.theme);
     syncSecOrder();
     // Always start collapsed — session state only, not persisted
@@ -39344,7 +39359,7 @@ function renderCondListED(rule){
         if(key==='BaseType'&&econData&&econData[v2]!==undefined){
           const price=econData[v2];
           const isInferred=_inferredPriceKeys.has(v2)&&S.inferredBorderSections&&S.inferredBorderSections[rule.section];
-          const priceStr=price>=1000?(price/1000).toFixed(1)+'k':price.toFixed(price<10?2:0);
+          const priceStr=fmtPrice(price,{noSuffix:true});
           const priceColor=priceGradientColor(price,_priceMin,_priceMax);
           // Inferred prices (the highest-value specific unique found on a
           // shared generic base type, not a direct per-item fetch) get a
@@ -39366,7 +39381,7 @@ function renderCondListED(rule){
         }
         if(key==='BaseType'){
           const isInferred=econData&&_inferredPriceKeys.has(v2)&&S.inferredBorderSections&&S.inferredBorderSections[rule.section];
-          const priceTip=(econData&&econData[v2]!==undefined)?(v2+': '+econData[v2].toFixed(2)+' chaos'+(isInferred?' \u2014 estimated (dashed border): this is the highest-priced specific unique currently known to use this base type, not a direct price for the base type itself':' (from last Auto-Tier fetch)')+'. '):'';
+          const priceTip=(econData&&econData[v2]!==undefined)?(v2+': '+fmtPrice(econData[v2])+' ('+PRICE_UNITS[priceUnit()].label+')'+(isInferred?' \u2014 estimated (dashed border): this is the highest-priced specific unique currently known to use this base type, not a direct price for the base type itself':' (from last Auto-Tier fetch)')+'. '):'';
           t.setAttribute('data-tip',priceTip+'Drag onto another rule in the sidebar to move it there');
         }
         if(key==='BaseType'){
@@ -43551,6 +43566,61 @@ function setEconScope(scope){
   saveState();
   renderEconBox(econData);
 }
+// ── Display currency for economy prices ───────────────────────────────────
+// Prices are FETCHED and STORED in chaos and that never changes -- tier
+// thresholds, sorting and Auto-Tier all keep working on the same numbers.
+// This is presentation only: the rate comes from the fetched data itself
+// (Exalted Orb's own chaos value, Divine Orb's own chaos value), so switching
+// unit costs nothing and needs no extra request. If the rate item is missing
+// from a fetch we fall back to chaos rather than inventing a number.
+const PRICE_UNITS={
+  chaos:  {label:'Chaos Orb',   suffix:'c',  rateItem:null},
+  exalted:{label:'Exalted Orb', suffix:'ex', rateItem:'Exalted Orb'},
+  divine: {label:'Divine Orb',  suffix:'div',rateItem:'Divine Orb'}
+};
+function priceUnit(){
+  const u=S.priceUnit;
+  return (u&&PRICE_UNITS[u])?u:'chaos';
+}
+function priceUnitRate(){
+  // chaos per 1 unit. 1 for chaos; otherwise that item's own chaos price.
+  const u=priceUnit();
+  if(u==='chaos')return 1;
+  const item=PRICE_UNITS[u].rateItem;
+  const d=(S.lastEconData&&S.lastEconData.prices)||S.lastEconData||null;
+  const r=d&&typeof d[item]==='number'?d[item]:null;
+  return (r&&r>0)?r:null;      // null = cannot convert, caller falls back
+}
+function priceUnitSuffix(){
+  const r=priceUnitRate();
+  return (r===null)?PRICE_UNITS.chaos.suffix:PRICE_UNITS[priceUnit()].suffix;
+}
+// Convert a stored chaos value into the chosen display unit.
+function toDisplayPrice(chaosVal){
+  if(chaosVal===null||chaosVal===undefined)return null;
+  const r=priceUnitRate();
+  return (r===null)?chaosVal:(chaosVal/r);
+}
+// One formatter so every price in the app reads the same way.
+function fmtPrice(chaosVal,opts){
+  const v=toDisplayPrice(chaosVal);
+  if(v===null||v===undefined)return 'no price';
+  const suf=(opts&&opts.noSuffix)?'':priceUnitSuffix();
+  if(v>=1000000)return (v/1000000).toFixed(1)+'M'+suf;
+  if(v>=1000)return (v/1000).toFixed(1)+'k'+suf;
+  return v.toFixed(v<1?2:(v<10?1:0))+suf;
+}
+function setPriceUnit(u){
+  S.priceUnit=(u&&PRICE_UNITS[u])?u:'chaos';
+  saveState();
+  if(typeof renderEconBox==='function'&&S.lastEconData)renderEconBox(S.lastEconData);
+  const r=byId(activeId); if(r&&typeof renderCondListED==='function')renderCondListED(r);
+  const rate=priceUnitRate();
+  toast(rate===null&&S.priceUnit!=='chaos'
+    ? 'No '+PRICE_UNITS[S.priceUnit].rateItem+' price in the last fetch \u2014 showing chaos'
+    : 'Prices now shown in '+PRICE_UNITS[S.priceUnit].label,'ok');
+}
+
 function renderEconBox(data){
   const box=document.getElementById('econBox');
   if(!box)return;
@@ -43618,7 +43688,7 @@ function renderEconBox(data){
   box.innerHTML=header+entries.map(([n,v])=>{
     const priceColor=v===null?'var(--text3)':priceGradientColor(v,_boxMin,_boxMax);
     const isInferred=v!==null&&_inferredPriceKeys.has(n)&&showInferredBorder;
-    const priceText=v===null?'no price':v.toFixed(v<1?2:(v<10?1:0))+'c';
+    const priceText=fmtPrice(v);
     const borderColor=isInferred?priceColor.replace('rgb(','rgba(').replace(')',',.5)'):'';
     const inferredStyle=isInferred?'border:1px solid '+borderColor+';padding:2px 6px;border-radius:4px;':'';
     const animClass=v===null?'':priceGradientClass();
