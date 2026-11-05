@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  MirrorFilter Web — VERSION 5.242
+  MirrorFilter Web — VERSION 5.243
   (The version shown here always matches the newest Changelog entry, which the
    app also displays live next to "Web" in the header. To confirm which build a
    given index.html is, check this line or the header in the running app.)
@@ -119,16 +119,36 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
    staring at that one line. Busy work now announces itself. */
 #statusBar.busy{color:#e0b050!important;font-weight:800;text-shadow:0 0 8px rgba(224,176,80,.7);animation:statusBusy 1s ease-in-out infinite}
 @keyframes statusBusy{0%,100%{opacity:1}50%{opacity:.45}}
-#mfWorking{position:fixed;top:0;left:0;right:0;z-index:10000;display:none;
-  padding:7px 14px;text-align:center;font-size:13px;font-weight:800;letter-spacing:.3px;
-  color:#0b0b0d;background:linear-gradient(90deg,#e0b050,#f0cf7a,#e0b050);
-  background-size:200% 100%;animation:mfWorkSweep 1.2s linear infinite;
-  box-shadow:0 2px 14px rgba(0,0,0,.6)}
-#mfWorking.on{display:block}
-@keyframes mfWorkSweep{0%{background-position:0% 0}100%{background-position:200% 0}}
+/* A floating, translucent pill rather than a full-width bar. The bar sat
+   across the top and covered the toolbar -- the exact controls you might be
+   reaching for. This floats clear of everything, is see-through, and has
+   pointer-events:none so it can never intercept a click. */
+#mfWorking{position:fixed;top:92px;left:50%;transform:translateX(-50%) scale(.96);
+  z-index:10000;opacity:0;pointer-events:none;
+  display:flex;align-items:center;gap:9px;
+  padding:9px 20px;border-radius:999px;
+  font-size:13.5px;font-weight:800;letter-spacing:.2px;
+  color:#ffe6a8;background:rgba(26,20,8,.72);
+  backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+  border:1px solid rgba(224,176,80,.65);
+  box-shadow:0 0 26px rgba(224,176,80,.38),0 6px 22px rgba(0,0,0,.5);
+  transition:opacity .18s ease, transform .18s ease}
+#mfWorking.on{opacity:1;transform:translateX(-50%) scale(1);
+  animation:mfWorkGlow 1.5s ease-in-out infinite}
+@keyframes mfWorkGlow{
+  0%,100%{box-shadow:0 0 18px rgba(224,176,80,.30),0 6px 22px rgba(0,0,0,.5);
+          border-color:rgba(224,176,80,.45)}
+  50%    {box-shadow:0 0 40px rgba(224,176,80,.70),0 6px 22px rgba(0,0,0,.5);
+          border-color:rgba(240,207,122,.95)}}
+/* the spinning marker inside the pill */
+#mfWorking .mfw-dot{width:11px;height:11px;border-radius:50%;flex:0 0 auto;
+  border:2px solid rgba(224,176,80,.35);border-top-color:#f0cf7a;
+  animation:mfWorkSpin .8s linear infinite}
+@keyframes mfWorkSpin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){
   #statusBar.busy{animation:none}
-  #mfWorking{animation:none}}
+  #mfWorking.on{animation:none}
+  #mfWorking .mfw-dot{animation:none}}
 #statusBar{font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0;display:inline-block;min-width:230px;max-width:230px;overflow:hidden;text-overflow:ellipsis;text-align:center}
 /* Same shift, smaller cause: .attention-pulse forces a 2px border (was 1px)
    on #autoTierBtn the moment Auto-Tier starts, widening it by 2px and nudging
@@ -33395,6 +33415,11 @@ const BASEDATA_GENERATED='2026-10-07';
 const GAME_PATCH_LEAGUE='Runes of Aldur';
 
 const CHANGELOG=[
+  {v:'5.243',changes:[
+    'The working indicator is no longer a full-width bar across the top \u2014 it sat directly over the toolbar, covering the very buttons you might be reaching for. It is now a floating translucent pill below the tabs, with a blurred backdrop, a spinning marker and a pulsing gold glow.',
+    'It has pointer-events:none, so it can never intercept a click even while visible \u2014 verified by hit-testing its own centre point and confirming the click lands on what is underneath.',
+    'Still covers Auto-Tier, Quick-Save, Export and Import, still turns the status line gold and pulsing alongside it, and still drops both the moment the status returns to Ready. Motion is disabled under the OS reduced-motion setting.'
+  ]},
   {v:'5.242',changes:[
     'Tier Configuration now has its own Chaos/Exalted/Divine dropdown, and the two selectors are the SAME setting \u2014 changing either one updates the other, the column header, the thresholds, the ranges, the BaseType chips and the prices panel together. Two dropdowns that could disagree would be worse than one in the wrong place, so both read from a single sync function.',
     'FIXED from 5.241: the threshold column header still read \u201CMIN CHAOS\u201D while the boxes held exalted values, because it was only updated when the dropdown changed and not when the panel re-rendered. It now says \u201CMin Exalted (ex)\u201D and is refreshed on every render, so it cannot drift again.',
@@ -43943,7 +43968,7 @@ function _setBusyUI(msg,on){
   if(sb)sb.classList.toggle('busy',!!on);
   const w=document.getElementById('mfWorking');
   if(w){
-    w.textContent=on?('\u23F3  '+msg+'  \u2014  please wait'):'';
+    w.innerHTML=on?('<span class="mfw-dot"></span><span>'+esc(String(msg))+'</span>'):'';
     w.classList.toggle('on',!!on);
   }
 }
