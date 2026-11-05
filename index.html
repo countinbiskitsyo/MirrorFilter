@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  MirrorFilter Web — VERSION 5.241
+  MirrorFilter Web — VERSION 5.242
   (The version shown here always matches the newest Changelog entry, which the
    app also displays live next to "Web" in the header. To confirm which build a
    given index.html is, check this line or the header in the running app.)
@@ -1014,6 +1014,17 @@ html.theme-tex-storm .ss,html.theme-tex-storm .card,html.theme-tex-storm .ri,htm
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Tier Configuration</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Tiers are checked highest-threshold first. Items with chaos value ≥ the threshold get that tier. The lowest tier (0 threshold) is the catch-all.</div>
       <div class="tier-cfg-grid">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--text2);font-weight:600">Show thresholds and prices in:</span>
+          <select id="priceUnitSelTier" onchange="setPriceUnit(this.value)"
+                  data-tip="Same setting as the dropdown on the ECONOMY PRICES panel — changing either one changes both. Thresholds are always STORED in chaos; this converts what you type and what you see."
+                  style="background:var(--bg);border:1px solid var(--border2);color:var(--text);font-size:11px;border-radius:var(--radius);padding:2px 6px;cursor:pointer;font-weight:600">
+            <option value="chaos">Chaos Orb (c)</option>
+            <option value="exalted">Exalted Orb (ex)</option>
+            <option value="divine">Divine Orb (div)</option>
+          </select>
+          <span style="font-size:10.5px;color:var(--text3)">stored in chaos either way — switching never changes your bands</span>
+        </div>
         <span class="hd">Preview</span><span class="hd">Name</span><span class="hd" id="tierMinHd">Min Chaos</span>
         <span class="hd">Text</span><span class="hd">BG</span><span class="hd">Range</span><span class="hd"></span>
       </div>
@@ -1040,7 +1051,7 @@ html.theme-tex-storm .ss,html.theme-tex-storm .card,html.theme-tex-storm .ri,htm
         </div>
         <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:3px">Bias: <span id="priceMidBiasVal">1.00</span> (1.00 = neutral)</div>
         <div id="gradPreview" style="display:flex;gap:2px;margin-top:6px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);padding:3px"></div>
-        <div style="text-align:center;font-size:9.5px;color:var(--text3);margin-top:2px">live preview \u2014 cheapest to priciest</div>
+        <div style="text-align:center;font-size:9.5px;color:var(--text3);margin-top:2px">live preview — cheapest to priciest</div>
       </div>
 
       <!-- ══ Estimated Price Border ══ -->
@@ -31083,6 +31094,8 @@ function renderTierCfg(){
     biasVal.textContent=priceMidBias.toFixed(2);
   }
   renderPricePresetSwatches();
+  if(typeof syncPriceUnitUI==='function')syncPriceUnitUI();
+  if(typeof renderGradientPreview==='function')renderGradientPreview();
   // IMPORTANT: iterate over the REAL S.tiers array directly here, not
   // getTiers()'s output — getTiers() returns fresh shallow copies (via
   // {...tier}) specifically so other read-only code can safely coerce
@@ -33382,6 +33395,12 @@ const BASEDATA_GENERATED='2026-10-07';
 const GAME_PATCH_LEAGUE='Runes of Aldur';
 
 const CHANGELOG=[
+  {v:'5.242',changes:[
+    'Tier Configuration now has its own Chaos/Exalted/Divine dropdown, and the two selectors are the SAME setting \u2014 changing either one updates the other, the column header, the thresholds, the ranges, the BaseType chips and the prices panel together. Two dropdowns that could disagree would be worse than one in the wrong place, so both read from a single sync function.',
+    'FIXED from 5.241: the threshold column header still read \u201CMIN CHAOS\u201D while the boxes held exalted values, because it was only updated when the dropdown changed and not when the panel re-rendered. It now says \u201CMin Exalted (ex)\u201D and is refreshed on every render, so it cannot drift again.',
+    'FIXED from 5.241: the gradient preview caption printed a literal \u201C\\u2014\u201D instead of a dash \u2014 an escape that leaked through unprocessed.',
+    'Verified: switching from either dropdown moves both; typing 1,016.231 in the Exalted view stores 14.4 chaos, so your bands are unchanged by the unit you happen to be viewing.'
+  ]},
   {v:'5.241',changes:[
     'Price gradient slider: the maths always worked, but it only re-rendered when a rule was selected and could re-render from stale data \u2014 so moving it on the Resources tab, where the control actually lives, appeared to do nothing. It now refreshes the swatches, the prices panel and the open rule from any tab, and there is a LIVE PREVIEW strip of sample prices right under the slider.',
     'Dropped k/M abbreviation from prices. \u201C59.9kc\u201D for 59,900 chaos read like a typo. Prices are now full figures with thousands separators and the unit in parentheses \u2014 \u201C60,000 (c)\u201D, \u201C4,234,298 (ex)\u201D, \u201C9.70 (c)\u201D.',
@@ -35230,8 +35249,7 @@ async function init(){
     syncLeagueUI();
     if(typeof renderLeagueContent==='function')renderLeagueContent();
     if(typeof renderBasedataStatus==='function')renderBasedataStatus();
-    const puSel=document.getElementById('priceUnitSel');
-    if(puSel)puSel.value=(typeof priceUnit==='function')?priceUnit():'chaos';
+    if(typeof syncPriceUnitUI==='function')syncPriceUnitUI();
     applyTheme(S.theme);
     syncSecOrder();
     // Always start collapsed — session state only, not persisted
@@ -43655,13 +43673,26 @@ function fmtPrice(chaosVal,opts){
   else              num=(Math.round(v*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   return (opts&&opts.noSuffix)?num:(num+' ('+priceUnitSuffix()+')');
 }
+// One place that pushes the current unit into every control that shows it.
+// Two dropdowns that can disagree would be worse than one in the wrong place.
+function syncPriceUnitUI(){
+  const u=priceUnit();
+  ['priceUnitSel','priceUnitSelTier'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el&&el.value!==u)el.value=u;
+  });
+  const hd=document.getElementById('tierMinHd');
+  // The header lied in 5.241: it still read "MIN CHAOS" while the boxes held
+  // exalted values, because it was only updated on change and not on render.
+  if(hd)hd.textContent='Min '+PRICE_UNITS[u].label.replace(' Orb','')
+        +' ('+PRICE_UNITS[u].suffix+')';
+}
 function setPriceUnit(u){
   S.priceUnit=(u&&PRICE_UNITS[u])?u:'chaos';
   saveState();
   // The unit applies EVERYWHERE, not just the prices panel: tier thresholds,
   // tier ranges, BaseType chips and the gradient preview all follow it.
-  const hd=document.getElementById('tierMinHd');
-  if(hd)hd.textContent='Min '+PRICE_UNITS[priceUnit()].label.replace(' Orb','');
+  syncPriceUnitUI();
   if(typeof renderTierCfg==='function')renderTierCfg();
   if(typeof renderGradientPreview==='function')renderGradientPreview();
   if(typeof renderEconBox==='function'&&S.lastEconData)renderEconBox(S.lastEconData);
