@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  MirrorFilter Web — VERSION 5.239
+  MirrorFilter Web — VERSION 5.241
   (The version shown here always matches the newest Changelog entry, which the
    app also displays live next to "Web" in the header. To confirm which build a
    given index.html is, check this line or the header in the running app.)
@@ -114,6 +114,21 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
    pair), any change to this element's width shifted EVERY item in the bar
    left/right as the row re-centered. Overflow is a safety net for the rare
    per-section Auto-Tier message, which can run longer than the reserved slot. */
+/* BUSY STATE -- the old status text was the same grey as everything else,
+   so a 10-second Auto-Tier looked identical to an idle tool unless you were
+   staring at that one line. Busy work now announces itself. */
+#statusBar.busy{color:#e0b050!important;font-weight:800;text-shadow:0 0 8px rgba(224,176,80,.7);animation:statusBusy 1s ease-in-out infinite}
+@keyframes statusBusy{0%,100%{opacity:1}50%{opacity:.45}}
+#mfWorking{position:fixed;top:0;left:0;right:0;z-index:10000;display:none;
+  padding:7px 14px;text-align:center;font-size:13px;font-weight:800;letter-spacing:.3px;
+  color:#0b0b0d;background:linear-gradient(90deg,#e0b050,#f0cf7a,#e0b050);
+  background-size:200% 100%;animation:mfWorkSweep 1.2s linear infinite;
+  box-shadow:0 2px 14px rgba(0,0,0,.6)}
+#mfWorking.on{display:block}
+@keyframes mfWorkSweep{0%{background-position:0% 0}100%{background-position:200% 0}}
+@media (prefers-reduced-motion:reduce){
+  #statusBar.busy{animation:none}
+  #mfWorking{animation:none}}
 #statusBar{font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0;display:inline-block;min-width:230px;max-width:230px;overflow:hidden;text-overflow:ellipsis;text-align:center}
 /* Same shift, smaller cause: .attention-pulse forces a 2px border (was 1px)
    on #autoTierBtn the moment Auto-Tier starts, widening it by 2px and nudging
@@ -999,7 +1014,7 @@ html.theme-tex-storm .ss,html.theme-tex-storm .card,html.theme-tex-storm .ri,htm
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Tier Configuration</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Tiers are checked highest-threshold first. Items with chaos value ≥ the threshold get that tier. The lowest tier (0 threshold) is the catch-all.</div>
       <div class="tier-cfg-grid">
-        <span class="hd">Preview</span><span class="hd">Name</span><span class="hd">Min Chaos</span>
+        <span class="hd">Preview</span><span class="hd">Name</span><span class="hd" id="tierMinHd">Min Chaos</span>
         <span class="hd">Text</span><span class="hd">BG</span><span class="hd">Range</span><span class="hd"></span>
       </div>
       <div id="tierCfgRows"></div>
@@ -1024,6 +1039,8 @@ html.theme-tex-storm .ss,html.theme-tex-storm .card,html.theme-tex-storm .ri,htm
           <span style="font-size:11px;color:var(--text3);width:60px;text-align:right">More bright</span>
         </div>
         <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:3px">Bias: <span id="priceMidBiasVal">1.00</span> (1.00 = neutral)</div>
+        <div id="gradPreview" style="display:flex;gap:2px;margin-top:6px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);padding:3px"></div>
+        <div style="text-align:center;font-size:9.5px;color:var(--text3);margin-top:2px">live preview \u2014 cheapest to priciest</div>
       </div>
 
       <!-- ══ Estimated Price Border ══ -->
@@ -1919,6 +1936,7 @@ html.theme-tex-storm .ss,html.theme-tex-storm .card,html.theme-tex-storm .ri,htm
     <div class="mbtns"><button class="tb-btn primary" onclick="closeM('econM')">Got it</button></div>
   </div>
 </div>
+<div id="mfWorking"></div>
 <div id="tt"></div>
 <div id="toasts"></div>
 
@@ -31020,6 +31038,18 @@ function isUnpricedTier(t){return t&&t.name===UNPRICED_TIER_NAME;}
 // they never drift. Distinguishes: ∅ (no price) / lowest priced tier at 0
 // (any price up to next threshold) / a normal banded tier / an open-topped
 // highest tier.
+// Thresholds may be fractional (e.g. 1.8c), so ranges are stated as
+// "from X up to <Y" rather than "X to Y-1" -- subtracting 1 only ever made
+// sense for whole-number thresholds and misreported every decimal band.
+// Thresholds are stored in chaos; _tn renders one in the unit currently
+// selected in the ECONOMY PRICES dropdown, so the tier table, the ranges and
+// the price panel never disagree about what unit you are looking at.
+function _tn(n){
+  const r=(typeof priceUnitRate==='function')?priceUnitRate():1;
+  const v=(r&&r!==1)?(n/r):n;
+  return (Math.round(v*1000)/1000).toLocaleString('en-US');
+}
+function _tu(){ return (typeof priceUnitSuffix==='function')?priceUnitSuffix():'c'; }
 function tierRangeLabel(t){
   const tiers=[...getTiers()].sort((a,b)=>b.minChaos-a.minChaos);
   const idx=tiers.findIndex(t2=>t2.name===t.name);
@@ -31028,10 +31058,10 @@ function tierRangeLabel(t){
   if(t.minChaos===0){
     // Lowest priced tier: catches any item with a real price, from just above
     // zero up to (but not including) the next tier's threshold.
-    return above?('.001c \u2013 '+(above.minChaos-1)+'c'):'.001c+';
+    return above?('>0 \u2013 <'+_tn(above.minChaos)+_tu()):'>0+';
   }
-  if(above)return t.minChaos+'c \u2013 '+(above.minChaos-1)+'c';
-  return t.minChaos+'c+';
+  if(above)return _tn(t.minChaos)+_tu()+' \u2013 <'+_tn(above.minChaos)+_tu();
+  return _tn(t.minChaos)+_tu()+'+';
 }
 function tierTip(name){
   const t=getTiers().find(t2=>t2.name===name);if(!t)return name;
@@ -31039,9 +31069,9 @@ function tierTip(name){
   const sorted=[...getTiers()].sort((a,b)=>b.minChaos-a.minChaos);
   const idx=sorted.findIndex(t2=>t2.name===name);
   const above=idx>0?sorted[idx-1]:null;
-  if(t.minChaos===0)return name+'-Tier \u2014 lowest priced tier: any item with a real price up to '+(above?(above.minChaos-1)+'c':'the next tier')+' lands here; items with no price go to '+UNPRICED_TIER_NAME+' instead';
-  if(above)return name+'-Tier \u2014 '+t.minChaos+'c to '+(above.minChaos-1)+'c';
-  return name+'-Tier \u2014 '+t.minChaos+'+ chaos';
+  if(t.minChaos===0)return name+'-Tier \u2014 lowest priced tier: any item with a real price up to '+(above?'<'+_tn(above.minChaos)+'c':'the next tier')+' lands here; items with no price go to '+UNPRICED_TIER_NAME+' instead';
+  if(above)return name+'-Tier \u2014 '+_tn(t.minChaos)+'c up to (not including) '+_tn(above.minChaos)+'c';
+  return name+'-Tier \u2014 '+_tn(t.minChaos)+'+ chaos';
 }
 function renderTierCfg(){
   const div=document.getElementById('tierCfgRows');if(!div)return;div.innerHTML='';
@@ -31085,7 +31115,7 @@ function renderTierCfg(){
       const p=row.querySelector('.tier-lbl-prev');if(p){p.textContent=t.name;p.style.background=t.bgColor;p.style.color=t.textColor;}
       saveState();renderList();const ar=byId(activeId);if(ar)renderEditor(ar);
     };
-    const chaosI=document.createElement('input');chaosI.className='tcfg-i';chaosI.type='number';chaosI.min='0';chaosI.value=t.minChaos;
+    const chaosI=document.createElement('input');chaosI.className='tcfg-i';chaosI.type='number';chaosI.min='0';chaosI.step='any';chaosI.value=(function(){const r=(typeof priceUnitRate==='function')?priceUnitRate():1;const v=(r&&r!==1)?(t.minChaos/r):t.minChaos;return Math.round(v*10000)/10000;})();
     const rangeL=document.createElement('span');rangeL.style.cssText='font-size:11px;color:var(--text2)';rangeL.className='tcfg-range';
     const updateRange=()=>{rangeL.textContent=tierRangeLabel(t);};
     updateRange();
@@ -31098,7 +31128,7 @@ function renderTierCfg(){
         if(S.tiers[ri])el.textContent=tierRangeLabel(S.tiers[ri]);
       });
     };
-    chaosI.oninput=()=>{t.minChaos=parseFloat(chaosI.value)||0;refreshAllRanges();saveState();};
+    chaosI.oninput=()=>{const r=(typeof priceUnitRate==='function')?priceUnitRate():1;const typed=parseFloat(chaosI.value)||0;t.minChaos=(r&&r!==1)?(typed*r):typed;refreshAllRanges();saveState();};
     const tcDiv=document.createElement('div');tcDiv.className='tcfg-c';tcDiv.style.background=t.textColor;
     const tcInp=document.createElement('input');tcInp.type='color';tcInp.value=t.textColor;
     tcInp.oninput=()=>{t.textColor=tcInp.value;tcDiv.style.background=tcInp.value;const p=row.querySelector('.tier-lbl-prev');if(p)p.style.color=tcInp.value;saveState();renderList();const ar2=byId(activeId);if(ar2)renderEditor(ar2);};
@@ -33352,6 +33382,17 @@ const BASEDATA_GENERATED='2026-10-07';
 const GAME_PATCH_LEAGUE='Runes of Aldur';
 
 const CHANGELOG=[
+  {v:'5.241',changes:[
+    'Price gradient slider: the maths always worked, but it only re-rendered when a rule was selected and could re-render from stale data \u2014 so moving it on the Resources tab, where the control actually lives, appeared to do nothing. It now refreshes the swatches, the prices panel and the open rule from any tab, and there is a LIVE PREVIEW strip of sample prices right under the slider.',
+    'Dropped k/M abbreviation from prices. \u201C59.9kc\u201D for 59,900 chaos read like a typo. Prices are now full figures with thousands separators and the unit in parentheses \u2014 \u201C60,000 (c)\u201D, \u201C4,234,298 (ex)\u201D, \u201C9.70 (c)\u201D.',
+    'The Chaos/Exalted/Divine dropdown now applies EVERYWHERE, not just the prices panel: BaseType chips (which were showing converted numbers with a hardcoded \u201Cc\u201D suffix \u2014 the discrepancy you could see), Tier Configuration thresholds, tier range labels and tooltips, and the gradient preview. Thresholds are still STORED in chaos; the box converts on the way in and out, so switching unit never alters your bands.',
+    'Work in progress is now impossible to miss. The status line turns gold, bold and pulses, and a full-width banner appears across the top of the window reading \u201C\u23F3 Fetching prices from poe.ninja\u2026 \u2014 please wait\u201D. Covers Auto-Tier, Quick-Save, Export and Import, and clears itself when the status returns to Ready. Both honour the OS reduced-motion setting.'
+  ]},
+  {v:'5.240',changes:[
+    'Tier thresholds now properly support DECIMALS (e.g. 1.8c, 3.6c, 7.2c). The value was always stored with parseFloat, but the input had no step attribute so browsers treated it as whole-numbers-only and flagged decimals as invalid. Now step=\u201Cany\u201D.',
+    'FIXED a real bug that decimals exposed: every tier range was printed as \u201Cthreshold to next\u22121\u201D, which only makes sense for integers. With 1.8/3.6 thresholds the D band read \u201C1.8c \u2013 2.6c\u201D instead of covering up to 3.6c. Ranges now read \u201C1.8c \u2013 <3.6c\u201D, and the tier tooltips say \u201Cup to (not including)\u201D. Matching was always correct \u2014 only the label lied.',
+    'Reminder: thresholds are in CHAOS regardless of the display dropdown. Set the dropdown to Exalted and prices read in exalted while the bands stay on the stable chaos baseline.'
+  ]},
   {v:'5.239',changes:[
     'NEW \u2014 price display unit. A dropdown in the ECONOMY PRICES header switches every price between Chaos, Exalted and Divine, the same way poe.ninja does. Applies to the prices panel and the price badges on BaseType chips.',
     'No extra data is fetched. The conversion rate comes from the SAME fetch you already have \u2014 Exalted Orb\u2019s own chaos price, or Divine Orb\u2019s. Verified against poe.ninja: Mirror of Kalandra shows 60.0kc / 4.2Mex / 6.2kdiv and Divine Orb 9.7c / 685ex, matching their site exactly.',
@@ -39359,7 +39400,7 @@ function renderCondListED(rule){
         if(key==='BaseType'&&econData&&econData[v2]!==undefined){
           const price=econData[v2];
           const isInferred=_inferredPriceKeys.has(v2)&&S.inferredBorderSections&&S.inferredBorderSections[rule.section];
-          const priceStr=fmtPrice(price,{noSuffix:true});
+          const priceStr=fmtPrice(price);
           const priceColor=priceGradientColor(price,_priceMin,_priceMax);
           // Inferred prices (the highest-value specific unique found on a
           // shared generic base type, not a direct per-item fetch) get a
@@ -39369,7 +39410,7 @@ function renderCondListED(rule){
           // as "this price, but flagged" instead of competing with it.
           const borderColor=priceColor.replace('rgb(','rgba(').replace(')',',.5)');
           const inferredStyle=isInferred?';border:1px solid '+borderColor+';padding:2px 6px;border-radius:4px':'';
-          label+=' <span class="'+priceGradientClass()+'" style="color:'+priceColor+';font-weight:600;font-size:10px'+inferredStyle+'">('+priceStr+'c)</span>';
+          label+=' <span class="'+priceGradientClass()+'" style="color:'+priceColor+';font-weight:600;font-size:10px'+inferredStyle+'">'+priceStr+'</span>';
         }
         t.innerHTML=label+'<span class="tag-x" onclick="rmCond(\''+esc(key)+'\','+i+')" data-tip="Remove">\u00d7</span>';
         if(key==='BaseType'){
@@ -43605,14 +43646,24 @@ function toDisplayPrice(chaosVal){
 function fmtPrice(chaosVal,opts){
   const v=toDisplayPrice(chaosVal);
   if(v===null||v===undefined)return 'no price';
-  const suf=(opts&&opts.noSuffix)?'':priceUnitSuffix();
-  if(v>=1000000)return (v/1000000).toFixed(1)+'M'+suf;
-  if(v>=1000)return (v/1000).toFixed(1)+'k'+suf;
-  return v.toFixed(v<1?2:(v<10?1:0))+suf;
+  // No k/M abbreviation: "59.9kc" for 59,900 chaos read as a typo rather
+  // than a number. Full figures with thousands separators, and the unit in
+  // parentheses so it never looks glued to the last digit.
+  let num;
+  if(v>=1000)       num=Math.round(v).toLocaleString('en-US');
+  else if(v>=10)    num=(Math.round(v*10)/10).toLocaleString('en-US');
+  else              num=(Math.round(v*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return (opts&&opts.noSuffix)?num:(num+' ('+priceUnitSuffix()+')');
 }
 function setPriceUnit(u){
   S.priceUnit=(u&&PRICE_UNITS[u])?u:'chaos';
   saveState();
+  // The unit applies EVERYWHERE, not just the prices panel: tier thresholds,
+  // tier ranges, BaseType chips and the gradient preview all follow it.
+  const hd=document.getElementById('tierMinHd');
+  if(hd)hd.textContent='Min '+PRICE_UNITS[priceUnit()].label.replace(' Orb','');
+  if(typeof renderTierCfg==='function')renderTierCfg();
+  if(typeof renderGradientPreview==='function')renderGradientPreview();
   if(typeof renderEconBox==='function'&&S.lastEconData)renderEconBox(S.lastEconData);
   const r=byId(activeId); if(r&&typeof renderCondListED==='function')renderCondListED(r);
   const rate=priceUnitRate();
@@ -43734,8 +43785,23 @@ function setPriceMidBias(sliderVal){
   priceMidBias=parseInt(sliderVal)/100;
   document.getElementById('priceMidBiasVal').textContent=priceMidBias.toFixed(2);
   S.priceMidBias=priceMidBias;
-  // Re-render whatever is currently showing so the change is visible immediately
-  if(activeId){const r=byId(activeId);if(r){renderCondListED(r);renderEconBox(econData);}}
+  // Re-render EVERYTHING that shows a gradient colour. The old version only
+  // did so when a rule was selected, and econData could be stale -- so moving
+  // this slider from the Resources tab (where it lives) appeared to do
+  // nothing at all. The live preview strip below updates wherever you are.
+  if(typeof renderPricePresetSwatches==='function')renderPricePresetSwatches();
+  if(typeof renderGradientPreview==='function')renderGradientPreview();
+  const d=(typeof econData!=='undefined'&&econData)?econData:S.lastEconData;
+  if(d&&typeof renderEconBox==='function')renderEconBox(d);
+  if(typeof activeId!=='undefined'&&activeId){const r=byId(activeId);if(r&&typeof renderCondListED==='function')renderCondListED(r);}
+}
+// A strip of sample prices under the slider, so the effect is visible on the
+// Resources tab where the control actually is.
+function renderGradientPreview(){
+  const el=document.getElementById('gradPreview'); if(!el)return;
+  const pts=[0.01,0.1,0.5,1,3,10,30,100,1000,20000];
+  el.innerHTML=pts.map(v=>'<span style="flex:1;text-align:center;padding:3px 0;font-size:10px;font-weight:700;color:'
+    +priceGradientColor(v,0.01,20000)+'">'+fmtPrice(v,{noSuffix:true})+'</span>').join('');
 }
 // Each preset defines a wide-contrast low (dullest/darkest) -> high
 // (brightest/most-saturated) pair in the SAME hue family, so whichever
@@ -43838,6 +43904,18 @@ function rgbHex(a){return'#'+a.slice(0,3).map(x=>x.toString(16).padStart(2,'0'))
 function h2r(h){return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 let _lastStatusBase='Ready \u2713';
+// Any status containing one of these is WORK IN PROGRESS -- the user should
+// pause rather than keep editing into a half-finished operation.
+const _BUSY_RE=/Fetching|Saving|Exporting|Importing|Auto-Tier\u2026|\u2026$/i;
+function _setBusyUI(msg,on){
+  const sb=document.getElementById('statusBar');
+  if(sb)sb.classList.toggle('busy',!!on);
+  const w=document.getElementById('mfWorking');
+  if(w){
+    w.textContent=on?('\u23F3  '+msg+'  \u2014  please wait'):'';
+    w.classList.toggle('on',!!on);
+  }
+}
 function setStatus(m){
   // "Ready" and "Saved ✓" specifically get personalized with the current
   // filter name (e.g. "AdamsMirrorFilter is ready") since those are the
@@ -43859,6 +43937,8 @@ function setStatus(m){
     display='\uD83D\uDCC4 '+name+'.filter \u2014 saved just now';
   }
   document.getElementById('statusBar').textContent=display;
+  // Drive the busy indicators from whatever status was just set.
+  try{ _setBusyUI(display, _BUSY_RE.test(String(m||''))); }catch(_){ }
 }
 // ── "saved N min ago" ───────────────────────────────────────────────────────
 // A bare "saved ✓" is true the instant it appears and quietly misleading an
