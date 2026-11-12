@@ -4,7 +4,7 @@
 
 No install, no download, no setup. Open the site and start building your filter.
 
-**▶ Use it here: https://countinbiskitsyo.github.io/mirrorfilter/**
+**▶ Use it here: https://countinbiskitsyo.github.io/MirrorFilter/**
 
 ---
 
