@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  MirrorFilter Web — VERSION 5.243
+  MirrorFilter Web — VERSION 5.244
   (The version shown here always matches the newest Changelog entry, which the
    app also displays live next to "Web" in the header. To confirm which build a
    given index.html is, check this line or the header in the running app.)
@@ -33415,6 +33415,10 @@ const BASEDATA_GENERATED='2026-10-07';
 const GAME_PATCH_LEAGUE='Runes of Aldur';
 
 const CHANGELOG=[
+  {v:'5.244',changes:[
+    '1.0 PREP \u2014 the BaseType name database now includes every base the generated tooltip table knows about, on top of the hand-maintained lists. Those two datasets were separate: re-running extract_basedata.js after a patch refreshed tooltips, but brand-new items still came back \u201Cnot in the database\u201D because nothing taught the NAME list about them. One refresh now updates both.',
+    'Deduped, and the hand-maintained lists always come first, so nothing existing is displaced and currency/omens/essences (which the tooltip table does not cover) are unaffected.'
+  ]},
   {v:'5.243',changes:[
     'The working indicator is no longer a full-width bar across the top \u2014 it sat directly over the toolbar, covering the very buttons you might be reaching for. It is now a floating translucent pill below the tabs, with a blurred backdrop, a spinning marker and a pulsing gold glow.',
     'It has pointer-events:none, so it can never intercept a click even while visible \u2014 verified by hit-testing its own centre point and confirming the click lands on what is underneath.',
@@ -38046,7 +38050,22 @@ function getClasses(){
   if(_gameMode==="both") return [...new Set([...CSUGG_CLASSES_POE2,...CSUGG_CLASSES_POE1])];
   return [...CSUGG_CLASSES_POE2]; // poe2 default
 }
-const ALL_BASETYPES=[...CSUGG_CURRENCY_POE2,...CSUGG_BASETYPES_POE2]; // static fallback
+// The hand-maintained name lists PLUS every base the generated tooltip table
+// knows about. Those two used to be separate: extract_basedata.js refreshed
+// __MF_BASEDATA__ after a patch, but new items still came back "not in the
+// database" because nothing taught the NAME list about them. Unioning them
+// means one refresh after a patch updates both. Deduped, and the hand lists
+// always come first, so nothing existing can be displaced.
+const ALL_BASETYPES=(function(){
+  const base=[...CSUGG_CURRENCY_POE2,...CSUGG_BASETYPES_POE2];
+  try{
+    const gen=window.__MF_BASEDATA__;
+    if(!gen)return base;
+    const seen=new Set(base);
+    const extra=Object.keys(gen).filter(n=>n&&!seen.has(n));
+    return extra.length?base.concat(extra):base;
+  }catch(_){ return base; }
+})();
 const ALL_CLASSES=[...new Set([...CSUGG_CLASSES_POE2,...CSUGG_CLASSES_POE1])]; // static fallback
 const CSUGG={
   Rarity:['Normal','Magic','Rare','Unique'],
